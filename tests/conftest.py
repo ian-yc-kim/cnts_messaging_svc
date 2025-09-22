@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from cnts_messaging_svc.app import app
 from cnts_messaging_svc.models.base import Base, get_db
+from cnts_messaging_svc.models.factories import create_all_tables
 
 
 # DO NOT MODIFY SECTION START
@@ -15,7 +16,7 @@ def session_local():
     engine = create_engine('sqlite:///:memory:',
                           connect_args={'check_same_thread': False},
                           poolclass=StaticPool)
-    Base.metadata.create_all(engine)
+    create_all_tables(engine)
     return sessionmaker(bind=engine)
 
 @pytest.fixture
