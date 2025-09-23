@@ -8,6 +8,7 @@ from starlette import status
 import logging
 
 from cnts_messaging_svc.routers.messages import router as messages_router
+from cnts_messaging_svc.routers.websocket_router import websocket_router
 from cnts_messaging_svc.schemas.error import ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -70,5 +71,6 @@ async def generic_exception_handler(request: Request, exc: Exception):
         ).model_dump()
     )
 
-# Include message router with API prefix
+# Include routers with API prefix
 app.include_router(messages_router, prefix="/api/v1")
+app.include_router(websocket_router, prefix="/api/v1")
