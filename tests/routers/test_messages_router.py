@@ -23,7 +23,7 @@ class TestMessagesRouter:
             "content_type": "text/plain",
             "content": "Test message content"
         }
-        self.endpoint = "/api/messages"
+        self.endpoint = "/api/v1/messages"
     
     def test_publish_message_success(self, client, db_session):
         """Test successful message publishing via API endpoint."""
@@ -371,20 +371,21 @@ class TestMessagesRouter:
         assert len(set(contents)) == 5  # All unique
     
     def test_publish_message_endpoint_path(self, client):
-        """Test that the endpoint is correctly mapped to /api/messages."""
+        """Test that the endpoint is correctly mapped to /api/v1/messages."""
         # Test correct path
-        response = client.post("/api/messages", json=self.valid_message_data)
+        response = client.post("/api/v1/messages", json=self.valid_message_data)
         assert response.status_code == status.HTTP_200_OK
         
         # Test that trailing slash also works (FastAPI handles this)
-        response = client.post("/api/messages/", json=self.valid_message_data)
+        response = client.post("/api/v1/messages/", json=self.valid_message_data)
         assert response.status_code == status.HTTP_200_OK
         
         # Test incorrect paths should return 404
         incorrect_paths = [
-            "/messages",  # Missing /api prefix
-            "/api/message",  # Singular instead of plural
-            "/api/Messages",  # Wrong case
+            "/messages",  # Missing /api/v1 prefix
+            "/api/messages",  # Old API version
+            "/api/v1/message",  # Singular instead of plural
+            "/api/v1/Messages",  # Wrong case
         ]
         
         for path in incorrect_paths:
