@@ -7,9 +7,11 @@ from .websocket import (
     ErrorMessage,
     MessageDelivery
 )
+from .error import ErrorResponse
 
 __all__ = [
     'MessageCreate', 'MessageResponse',
     'WebSocketMessage', 'SubscribeRequest', 'UnsubscribeRequest', 
-    'Acknowledgement', 'ErrorMessage', 'MessageDelivery'
+    'Acknowledgement', 'ErrorMessage', 'MessageDelivery',
+    'ErrorResponse'
 ]

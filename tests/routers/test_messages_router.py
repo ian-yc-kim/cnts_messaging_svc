@@ -216,9 +216,17 @@ class TestMessagesRouter:
         
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         response_data = response.json()
-        assert "detail" in response_data
-        assert "Failed to persist message" in response_data["detail"]
-        assert "Database error" in response_data["detail"]
+        
+        # Assert response matches ErrorResponse format
+        expected_fields = {"status_code", "code", "message", "details"}
+        assert set(response_data.keys()) == expected_fields
+        
+        # Assert specific field values for ErrorResponse
+        assert response_data["status_code"] == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response_data["code"] == "HTTP_500"
+        assert "Failed to persist message" in response_data["message"]
+        assert "Database error" in response_data["message"]
+        assert response_data["details"] is None
     
     @patch('cnts_messaging_svc.routers.messages.MessagePersistenceService')
     def test_publish_message_generic_error(self, mock_service_class, client):
@@ -231,8 +239,16 @@ class TestMessagesRouter:
         
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         response_data = response.json()
-        assert "detail" in response_data
-        assert "An unexpected error occurred while processing the message" in response_data["detail"]
+        
+        # Assert response matches ErrorResponse format
+        expected_fields = {"status_code", "code", "message", "details"}
+        assert set(response_data.keys()) == expected_fields
+        
+        # Assert specific field values for ErrorResponse
+        assert response_data["status_code"] == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response_data["code"] == "HTTP_500"
+        assert response_data["message"] == "An unexpected error occurred while processing the message"
+        assert response_data["details"] is None
     
     def test_publish_message_no_partial_persistence_on_validation_error(self, client, db_session):
         """Test that validation errors don't result in partial data persistence."""
