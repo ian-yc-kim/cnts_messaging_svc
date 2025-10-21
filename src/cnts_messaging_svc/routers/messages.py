@@ -1,12 +1,18 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import logging
+import asyncio
 
 from cnts_messaging_svc.models.base import get_db
 from cnts_messaging_svc.schemas.message import MessageCreate, MessageResponse
 from cnts_messaging_svc.services.message_persistence import MessagePersistenceService, MessagePersistenceError
+from cnts_messaging_svc.services.websocket_publisher import WebSocketPublisher
+from cnts_messaging_svc.routers.websocket_router import manager
 
 router = APIRouter()
+
+# Instantiate module-level websocket publisher using global manager
+websocket_publisher = WebSocketPublisher(manager)
 
 
 @router.post("/messages", response_model=MessageResponse)
@@ -28,6 +34,7 @@ async def publish_message(
         HTTPException: 500 for persistence errors, 422 for validation errors (handled by FastAPI)
     """
     try:
+        print("[DEBUG] messages.publish_message: start", flush=True)
         # Instantiate the persistence service
         persistence_service = MessagePersistenceService()
         
@@ -41,6 +48,17 @@ async def publish_message(
             f"message_id={result.message_id}"
         )
         
+        print("[DEBUG] messages.publish_message: persistence done, scheduling broadcast via WebSocketPublisher", flush=True)
+
+        # Broadcast to websocket subscribers (best-effort) asynchronously to avoid deadlocks
+        try:
+            # Schedule broadcast without awaiting to prevent blocking the request/response cycle
+            asyncio.create_task(websocket_publisher.publish_message(result))
+            print("[DEBUG] messages.publish_message: broadcast task scheduled", flush=True)
+        except Exception as e:
+            logging.error(f"Failed to schedule broadcast to websockets: {e}", exc_info=True)
+        
+        print("[DEBUG] messages.publish_message: returning response", flush=True)
         # FastAPI will automatically convert the Message ORM object to MessageResponse
         return result
         
