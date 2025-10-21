@@ -6,10 +6,13 @@ from starlette.requests import Request
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette import status
 import logging
+import asyncio
+from datetime import datetime
 
 from cnts_messaging_svc.routers.messages import router as messages_router
-from cnts_messaging_svc.routers.websocket_router import websocket_router
+from cnts_messaging_svc.routers.websocket_router import websocket_router, manager
 from cnts_messaging_svc.schemas.error import ErrorResponse
+from cnts_messaging_svc import config
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +77,87 @@ async def generic_exception_handler(request: Request, exc: Exception):
 # Include routers with API prefix
 app.include_router(messages_router, prefix="/api/v1")
 app.include_router(websocket_router, prefix="/api/v1")
+
+# Background cleanup task reference
+app.state.ws_cleanup_task = None
+
+
+async def stale_connection_cleanup_task():
+    """Background task that periodically checks for stale websocket connections and cleans them up."""
+    try:
+        while True:
+            # Snapshot current time and connections to avoid mutation during iteration
+            now = datetime.utcnow()
+            try:
+                items = list(manager.active_connections.items())
+            except Exception as e:
+                logger.error(f"Failed to snapshot active connections: {e}", exc_info=True)
+                items = []
+
+            for client_id, conn_tuple in items:
+                try:
+                    # conn_tuple expected to be (websocket, last_activity_at)
+                    if not isinstance(conn_tuple, tuple) or len(conn_tuple) != 2:
+                        logger.warning(f"Unexpected connection tuple for client {client_id}: {conn_tuple}")
+                        continue
+
+                    websocket, last_activity_at = conn_tuple
+                    try:
+                        inactivity_seconds = (now - last_activity_at).total_seconds()
+                    except Exception as e:
+                        logger.error(f"Failed to compute inactivity for client {client_id}: {e}", exc_info=True)
+                        continue
+
+                    if inactivity_seconds > config.WEBSOCKET_INACTIVITY_TIMEOUT_SECONDS:
+                        logger.warning(
+                            f"Closing stale websocket for client {client_id} due to inactivity ({inactivity_seconds}s)"
+                        )
+                        try:
+                            await websocket.close(code=1000, reason="Inactivity timeout")
+                        except Exception as e:
+                            logger.error(f"Error closing websocket for client {client_id}: {e}", exc_info=True)
+
+                        try:
+                            manager.disconnect(client_id)
+                        except Exception as e:
+                            logger.error(f"Failed to disconnect stale client {client_id}: {e}", exc_info=True)
+
+                except Exception as e:
+                    logger.error(f"Error checking client {client_id} for staleness: {e}", exc_info=True)
+
+            # Sleep before next iteration
+            await asyncio.sleep(config.WEBSOCKET_INACTIVITY_CHECK_INTERVAL_SECONDS)
+
+    except asyncio.CancelledError:
+        # Task cancellation requested, exit gracefully
+        logger.info("stale_connection_cleanup_task cancelled")
+    except Exception as e:
+        logger.error(f"Unhandled error in stale_connection_cleanup_task: {e}", exc_info=True)
+    finally:
+        logger.info("stale_connection_cleanup_task exiting")
+
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        # Start the background cleanup task
+        if app.state.ws_cleanup_task is None:
+            app.state.ws_cleanup_task = asyncio.create_task(stale_connection_cleanup_task())
+            logger.info("Started stale websocket cleanup task")
+    except Exception as e:
+        logger.error(f"Failed to start stale websocket cleanup task: {e}", exc_info=True)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        task = app.state.ws_cleanup_task
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.info("stale websocket cleanup task cancelled on shutdown")
+            app.state.ws_cleanup_task = None
+    except Exception as e:
+        logger.error(f"Error during shutdown cleanup: {e}", exc_info=True)
